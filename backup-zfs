@@ -76,16 +76,14 @@ do
 
     # See if this dataset has a canmount property. We don't want to try to
     # force a canmount for volumes, for example.
+    ARCHIVEDCANMOUNT=""
     SOURCECANMOUNT=$(zfs get -o value -H canmount $dataset)
-    if [ $SOURCECANMOUNT = '-' ] ; then
-        ARCHIVEDCANMOUNT="-o archive:canmount=-"
-    else
+    if [ $SOURCECANMOUNT != '-' ] ; then
         # See if we're copying something that's already an archive.
-        ARCHIVEDCANMOUNT=$(zfs get -o value -H archive:canmount $dataset)
-        if [ $ARCHIVEDCANMOUNT = '-' ] ; then
+        if [ $(zfs get -o value -H archive:canmount $dataset) = '-' ] ; then
             ARCHIVEDCANMOUNT="-o archive:canmount=$SOURCECANMOUNT"
-            ARCHIVEDCANMOUNT="$ARCHIVEDCANMOUNT -o canmount=off"
         fi
+        ARCHIVEDCANMOUNT="$ARCHIVEDCANMOUNT -o canmount=off"
     fi
 
     # Find the smallest set of snapshots we can send, searching newest
