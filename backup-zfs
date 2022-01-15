@@ -105,8 +105,16 @@ do
     # local dataset and the newest on backup media, you'll need to manually
     # correct this.
     if [ $INCREMENTAL -eq 0 ]; then
-        echo "Sending full $LATEST..."
-        zfs send -p $LATEST | $TRANSPORT zfs receive \
+        FIRST=$(grep "^$dataset@" $SOURCESNAPS | tail -1)
+        FIRSTSNAP=$(echo $FIRST | sed -e "s/^[^@]*//")
+
+        echo "Seeding with $FIRST..."
+        zfs send -p $FIRST | $TRANSPORT zfs receive \
+            -o archive:canmount=$ARCHIVEDCANMOUNT \
+            -o canmount=off -Fu $SAFE/$dataset
+
+        echo "Sending incremental $FIRST → $SAFE/$LATEST"
+        zfs send -p -i $FIRSTSNAP $LATEST | $TRANSPORT zfs receive \
             -o archive:canmount=$ARCHIVEDCANMOUNT \
             -o canmount=off -Fu $SAFE/$dataset
     fi
