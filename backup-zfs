@@ -74,10 +74,18 @@ do
         continue
     fi
 
-    # See if we're copying something that's already an archive.
-    ARCHIVEDCANMOUNT=$(zfs get -o value -H archive:canmount $dataset)
-    if [ $ARCHIVEDCANMOUNT = '-' ] ; then
-        ARCHIVEDCANMOUNT=$(zfs get -o value -H canmount $dataset)
+    # See if this dataset has a canmount property. We don't want to try to
+    # force a canmount for volumes, for example.
+    SOURCECANMOUNT=$(zfs get -o value -H canmount $dataset)
+    if [ $SOURCECANMOUNT = '-' ] ; then
+        ARCHIVEDCANMOUNT="-o archive:canmount=-"
+    else
+        # See if we're copying something that's already an archive.
+        ARCHIVEDCANMOUNT=$(zfs get -o value -H archive:canmount $dataset)
+        if [ $ARCHIVEDCANMOUNT = '-' ] ; then
+            ARCHIVEDCANMOUNT="-o archive:canmount=$SOURCECANMOUNT"
+            ARCHIVEDCANMOUNT="$ARCHIVEDCANMOUNT -o canmount=off"
+        fi
     fi
 
     # Find the smallest set of snapshots we can send, searching newest
@@ -92,9 +100,7 @@ do
             INCREMENTAL=1
             echo "Sending incremental $potential → $SAFE/$LATEST"
             zfs send -I $potential $LATEST | $TRANSPORT zfs receive \
-                -o archive:canmount=$ARCHIVEDCANMOUNT \
-                -o canmount=off \
-                -Fu $SAFE/$dataset
+                $ARCHIVEDCANMOUNT -Fu $SAFE/$dataset
             break
         fi
     done
@@ -110,13 +116,11 @@ do
 
         echo "Seeding with $FIRST..."
         zfs send -p $FIRST | $TRANSPORT zfs receive \
-            -o archive:canmount=$ARCHIVEDCANMOUNT \
-            -o canmount=off -Fu $SAFE/$dataset
+            $ARCHIVEDCANMOUNT -Fu $SAFE/$dataset
 
         echo "Sending incremental $FIRST → $SAFE/$LATEST"
         zfs send -p -i $FIRSTSNAP $LATEST | $TRANSPORT zfs receive \
-            -o archive:canmount=$ARCHIVEDCANMOUNT \
-            -o canmount=off -Fu $SAFE/$dataset
+            $ARCHIVEDCANMOUNT -Fu $SAFE/$dataset
     fi
 done
 
