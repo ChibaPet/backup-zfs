@@ -1,0 +1,115 @@
+#!/bin/sh
+
+# Written in 2022 by Mason Loring Bliss <mason@blisses.org>
+#
+# To the extent possible under law, the author(s) have dedicated all
+# copyright and related and neighboring rights to this software to the
+# public domain worldwide. This software is distributed without any
+# warranty.
+#
+# You should have received a copy of the CC0 Public Domain Dedication
+# along with this software. If not, see:
+#
+#     http://creativecommons.org/publicdomain/zero/1.0/
+#
+# Thanks to ideas for improvements from ahesford and zdykstra. Check out
+# their project: https://zfsbootmenu.org/
+
+# ---------------------------------------------------------------------------
+
+# User config:
+
+POOLS="tank"
+SAFE="backup/snapshots/mybox"
+TRANSPORT=""
+
+# TRANSPORT can be, for example, "ssh foo@bar" or you can leave it empty to
+# use local pools on both sides of the transfer.
+
+# Create backup/snapshots/mybox in advance - each specified pool will exist
+# inside of it.
+
+# ---------------------------------------------------------------------------
+
+# Ensure that only root is running us.
+if [ $(/usr/bin/id -u) -ne 0 ]; then
+    echo "Requires root. Exiting."
+    exit 1
+fi
+
+# Take a new snapshot of the pools we're to back up.
+SNAPSHOT="backup-$(hostname -s)-$(date +%Y%m%d-%H%M%S)"
+for dataset in $POOLS
+do
+    echo Creating recursive snapshot $dataset@$SNAPSHOT...
+    zfs snapshot -r "$dataset@$SNAPSHOT"
+done
+
+# Save off a list of snapshots that exist in the pools we'll back up.
+SOURCESNAPS=$(mktemp /tmp/snaps-curr-XXXXXX)
+for pool in $POOLS
+do
+    zfs list -Hrt snap -o name -S createtxg $pool >> $SOURCESNAPS
+done
+
+# Save off a list of snapshots that exist in the destination.
+DESTSNAPS=$(mktemp /tmp/snaps-safe-XXXXXX)
+$TRANSPORT zfs list -Hrt snap -o name $SAFE | sed -e "s,^$SAFE/,," > $DESTSNAPS
+
+# Find snapshots that exist in both source and destination.
+SHAREDSNAPS=$(mktemp /tmp/snaps-backups-XXXXXX)
+cat $SOURCESNAPS $DESTSNAPS | sort | uniq -d > $SHAREDSNAPS
+
+# For each dataset to be considered...
+for dataset in $(sed -e "s/@.*//" $SOURCESNAPS | sort -u)
+do
+    # Identify the most recent snapshot. (Might not be the one we just
+    # took. That can be broken off into separate scripting if desired.)
+    LATEST=$(grep "^$dataset@" $SOURCESNAPS | head -1)
+
+    # If it's already backed up, say so...
+    grep -q "^$LATEST" $SHAREDSNAPS
+    if [ $? -eq 0 ]; then
+        echo "$LATEST already backed up."
+        continue
+    fi
+
+    # See if we're copying something that's already an archive.
+    ARCHIVEDCANMOUNT=$(zfs get -o value -H archive:canmount $dataset)
+    if [ $ARCHIVEDCANMOUNT = '-' ] ; then
+        ARCHIVEDCANMOUNT=$(zfs get -o value -H canmount $dataset)
+    fi
+
+    # Find the smallest set of snapshots we can send, searching newest
+    # backwards.
+    INCREMENTAL=0
+    for potential in $(grep "^$dataset@" $SOURCESNAPS)
+    do
+        # See if the older snapshot exists in the back-ups.
+        grep -q "^$potential" $SHAREDSNAPS
+        if [ $? -eq 0 ]; then
+            # The snapshot exists in back-ups, so we can use it as a base.
+            INCREMENTAL=1
+            echo "Sending incremental $potential → $SAFE/$LATEST"
+            zfs send -I $potential $LATEST | $TRANSPORT zfs receive \
+                -o archive:canmount=$ARCHIVEDCANMOUNT \
+                -o canmount=off \
+                -Fu $SAFE/$dataset
+            break
+        fi
+    done
+
+    # We don't see a snapshot for this dataset. Send everything
+    # recursively. Note that if you have a funny situation where there are
+    # older snapshots but there's no overlap between the oldest on your
+    # local dataset and the newest on backup media, you'll need to manually
+    # correct this.
+    if [ $INCREMENTAL -eq 0 ]; then
+        echo "Sending full $LATEST..."
+        zfs send -R $LATEST | $TRANSPORT zfs receive \
+            -o archive:canmount=$ARCHIVEDCANMOUNT \
+            -o canmount=off -Fu $SAFE/$dataset
+    fi
+done
+
+rm $SOURCESNAPS $DESTSNAPS $SHAREDSNAPS
