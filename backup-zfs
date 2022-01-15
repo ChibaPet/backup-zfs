@@ -106,7 +106,7 @@ do
     # correct this.
     if [ $INCREMENTAL -eq 0 ]; then
         echo "Sending full $LATEST..."
-        zfs send -R $LATEST | $TRANSPORT zfs receive \
+        zfs send -p $LATEST | $TRANSPORT zfs receive \
             -o archive:canmount=$ARCHIVEDCANMOUNT \
             -o canmount=off -Fu $SAFE/$dataset
     fi
