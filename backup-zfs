@@ -25,9 +25,14 @@ POOLS="tank"
 # SAFE is where the back-ups will be sent.
 SAFE="backup/snapshots/mybox"
 
+# List datasets to exclude. We make the recursive snapshot, but then remove
+# it from these datasets.
+IGNORE="tank/some/dataset tank/swap"
+# Note that if there are snapshots created by other processes, they will be
+# shipped, as things stand. See the code, below, for options here.
+
 # If SAFE is on another system, TRANSPORT shows how to get there.
 TRANSPORT=""
-
 # TRANSPORT can be, for example, "ssh foo@bar" or you can leave it empty to
 # use local pools on both sides of the transfer.
 
@@ -48,6 +53,27 @@ for dataset in $POOLS
 do
     echo Creating recursive snapshot $dataset@$SNAPSHOT...
     zfs snapshot -r "$dataset@$SNAPSHOT"
+done
+
+# ...and remove it from the datasets listed in IGNORE.
+for dataset in $IGNORE
+do
+    zfs destroy "$dataset@$SNAPSHOT"
+
+    # Note:
+    #
+    # If you want to remove all snapshots from the listed datasets, in
+    # case, for instance, there are other processes that create snapshots,
+    # do something like this instead:
+    #
+    # zfs list -Ht snap -o name $dataset | xargs -n 1 zfs destroy
+    #
+    # or if this looks cleaner to you:
+    #
+    # for snapshot in $(zfs list -Ht snap -o name $dataset)
+    # do
+    #     zfs destroy $snapshot
+    # done
 done
 
 # Save off a list of snapshots that exist in the pools we'll back up.
