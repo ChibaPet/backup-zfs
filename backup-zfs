@@ -48,7 +48,7 @@ if [ $(/usr/bin/id -u) -ne 0 ]; then
 fi
 
 # Take a new snapshot of the pools we're to back up.
-SNAPSHOT="backup-$(hostname -s)-$(date +%Y%m%d-%H%M%S)"
+SNAPSHOT="backup-$(hostname | awk -F. '{print $1}')-$(date +%Y%m%d-%H%M%S)"
 for dataset in $POOLS
 do
     echo Creating recursive snapshot $dataset@$SNAPSHOT...
