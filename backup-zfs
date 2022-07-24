@@ -74,18 +74,22 @@ do
 done
 
 # Save off a list of snapshots that exist in the pools we'll back up.
-SOURCESNAPS=$(mktemp /tmp/snaps-curr-XXXXXX)
+SOURCESNAPS=$(mktemp /tmp/snaps-local-XXXXXX)
 for pool in $POOLS
 do
     zfs list -Hrt snap -o name -S createtxg $pool >> $SOURCESNAPS
 done
 
 # Save off a list of snapshots that exist in the destination.
-DESTSNAPS=$(mktemp /tmp/snaps-safe-XXXXXX)
-$TRANSPORT zfs list -Hrt snap -o name $SAFE | sed -e "s,^$SAFE/,," > $DESTSNAPS
+DESTSNAPS=$(mktemp /tmp/snaps-remote-XXXXXX)
+for pool in $POOLS
+do
+    $TRANSPORT zfs list -Hrt snap -o name $SAFE/$pool \
+        | sed -e "s,^$SAFE/,," >> $DESTSNAPS
+done
 
 # Find snapshots that exist in both source and destination.
-SHAREDSNAPS=$(mktemp /tmp/snaps-backups-XXXXXX)
+SHAREDSNAPS=$(mktemp /tmp/snaps-shared-XXXXXX)
 cat $SOURCESNAPS $DESTSNAPS | sort | uniq -d > $SHAREDSNAPS
 
 # For each dataset to be considered...
